@@ -36,9 +36,11 @@ type Bucket[T any] struct {
 }
 
 func NewBucket[T any](opts ...NewBucketOption[T]) *Bucket[T] {
+	od := defaultOutdated
 	b := &Bucket[T]{
 		maxSize:         defaultMaxSize,
 		cache:           make(map[string]*CacheItem[T]),
+		outdated:        &od,
 		updater:         newLRUUpdater[T](),
 		cleanupInterval: defaultCleanupInterval,
 		stopCleanup:     make(chan bool),
@@ -46,11 +48,6 @@ func NewBucket[T any](opts ...NewBucketOption[T]) *Bucket[T] {
 
 	for _, opt := range opts {
 		opt(b)
-	}
-
-	if b.outdated == nil {
-		od := defaultOutdated
-		b.outdated = &od
 	}
 
 	// Start background cleanup goroutine

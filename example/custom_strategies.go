@@ -134,7 +134,7 @@ func demonstrateCustomStrategies() {
 	fifoCache := heatwave.NewBucket[string](
 		heatwave.WithBucketName[string]("custom-fifo"),
 		heatwave.WithMaxSize[string](3),
-		heatwave.WithUpdater[string](newSimpleFIFO[string]()),
+		heatwave.WithFIFOUpdater[string](),
 		heatwave.WithBucketOutdated[string](time.Second*10),
 	)
 	defer fifoCache.Close()
