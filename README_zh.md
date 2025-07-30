@@ -1,8 +1,10 @@
-# 🔥 Heatwave[热浪] - 高性能泛型内存缓存
+# 🔥 Heatwave - 高性能泛型内存缓存
 
 [![Go Version](https://img.shields.io/badge/Go-1.18+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Generic](https://img.shields.io/badge/Generic-Type%20Safe-brightgreen.svg)](https://go.dev/doc/tutorial/generics)
+
+> 🌐 **语言**: [English](README.md) | [中文](README_zh.md)
 
 Heatwave 是一个高性能、类型安全的 Go 内存缓存系统，**完全支持泛型**。它具有可插拔的淘汰策略（LRU、FIFO、自定义）、自动过期和线程安全操作 - 全部都具有编译时类型安全性！
 
@@ -177,7 +179,9 @@ cache := heatwave.NewBucket[string](
 
 ## 🔄 淘汰策略
 
-### 内置 LRU（默认）
+### 内置策略
+
+#### LRU（最近最少使用）- 默认
 
 ```go
 // LRU 是默认策略
@@ -189,24 +193,38 @@ lruCache := heatwave.NewBucket[string](
 )
 ```
 
+#### FIFO（先进先出）- 内置
+
+```go
+// 使用内置的 FIFO 策略
+fifoCache := heatwave.NewBucket[string](
+    heatwave.WithFIFOUpdater[string](),
+)
+
+// 或者显式指定
+fifoCache := heatwave.NewBucket[string](
+    heatwave.WithUpdater[string](heatwave.newFIFO[string]()),
+)
+```
+
 ### 自定义策略
 
 实现 `Updater[T]` 接口：
 
 ```go
-type MyFIFOStrategy[T any] struct {
+type MyCustomStrategy[T any] struct {
     items []*heatwave.CacheItem[T]
 }
 
-func (f *MyFIFOStrategy[T]) Add(item *heatwave.CacheItem[T]) {
+func (f *MyCustomStrategy[T]) Add(item *heatwave.CacheItem[T]) {
     f.items = append(f.items, item)
 }
 
-func (f *MyFIFOStrategy[T]) Access(item *heatwave.CacheItem[T]) {
-    // FIFO 访问时不重新排序
+func (f *MyCustomStrategy[T]) Access(item *heatwave.CacheItem[T]) {
+    // 自定义访问逻辑
 }
 
-func (f *MyFIFOStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
+func (f *MyCustomStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
     for i, it := range f.items {
         if it == item {
             f.items = append(f.items[:i], f.items[i+1:]...)
@@ -215,28 +233,37 @@ func (f *MyFIFOStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
     }
 }
 
-func (f *MyFIFOStrategy[T]) Evict() *heatwave.CacheItem[T] {
+func (f *MyCustomStrategy[T]) Evict() *heatwave.CacheItem[T] {
     if len(f.items) == 0 {
         return nil
     }
+    // 自定义淘汰逻辑
     item := f.items[0]
     f.items = f.items[1:]
     return item
 }
 
-func (f *MyFIFOStrategy[T]) Size() int {
+func (f *MyCustomStrategy[T]) Size() int {
     return len(f.items)
 }
 
-func (f *MyFIFOStrategy[T]) Clear() {
+func (f *MyCustomStrategy[T]) Clear() {
     f.items = f.items[:0]
 }
 
 // 使用方法
-fifoCache := heatwave.NewBucket[string](
-    heatwave.WithUpdater[string](&MyFIFOStrategy[string]{}),
+customCache := heatwave.NewBucket[string](
+    heatwave.WithUpdater[string](&MyCustomStrategy[string]{}),
 )
 ```
+
+### 策略比较
+
+| 策略 | 淘汰规则 | 适用场景 | 时间复杂度 |
+|------|----------|----------|------------|
+| **LRU** | 最近最少使用 | 局部性强的访问模式 | O(1) |
+| **FIFO** | 先进先出 | 时间序列数据，公平淘汰 | O(1) |
+| **自定义** | 自定义逻辑 | 特殊业务需求 | 取决于实现 |
 
 ## 📖 完整 API 参考
 
@@ -259,6 +286,7 @@ fifoCache := heatwave.NewBucket[string](
 | `WithBucketOutdated[T]` | `time.Duration` | 项目 TTL |
 | `WithCleanupInterval[T]` | `time.Duration` | 清理频率 |
 | `WithUpdater[T]` | `Updater[T]` | 自定义淘汰策略 |
+| `WithFIFOUpdater[T]` | `无参数` | 使用内置 FIFO 策略 |
 
 ### Updater[T] 接口
 
@@ -298,7 +326,7 @@ if data, found := stringCache.Bring("key"); found {
 ### 时间复杂度
 - **存储 (Nail)**: O(1)
 - **获取 (Bring)**: O(1)  
-- **淘汰**: LRU 为 O(1)
+- **淘汰**: LRU/FIFO 为 O(1)
 - **空间**: O(n)，其中 n = 缓存大小
 
 ### 并发性
@@ -375,4 +403,4 @@ go test -v
 
 <div align="center">
   <sub>用 ❤️ 为 Go 社区构建</sub>
-</div> 
+</div>

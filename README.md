@@ -4,6 +4,8 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Generic](https://img.shields.io/badge/Generic-Type%20Safe-brightgreen.svg)](https://go.dev/doc/tutorial/generics)
 
+> 🌐 **Language**: [English](README.md) | [中文](README_zh.md)
+
 Heatwave is a blazing-fast, type-safe Go memory cache system with **full generic support**. It features pluggable eviction strategies (LRU, FIFO, Custom), automatic expiration, and thread-safe operations - all with compile-time type safety!
 
 ## ✨ Key Features
@@ -177,7 +179,9 @@ cache := heatwave.NewBucket[string](
 
 ## 🔄 Eviction Strategies
 
-### Built-in LRU (Default)
+### Built-in Strategies
+
+#### LRU (Least Recently Used) - Default
 
 ```go
 // LRU is the default strategy
@@ -189,24 +193,38 @@ lruCache := heatwave.NewBucket[string](
 )
 ```
 
+#### FIFO (First In, First Out) - Built-in
+
+```go
+// Use built-in FIFO strategy
+fifoCache := heatwave.NewBucket[string](
+    heatwave.WithFIFOUpdater[string](),
+)
+
+// Or explicitly specify
+fifoCache := heatwave.NewBucket[string](
+    heatwave.WithUpdater[string](heatwave.newFIFO[string]()),
+)
+```
+
 ### Custom Strategies
 
 Implement the `Updater[T]` interface:
 
 ```go
-type MyFIFOStrategy[T any] struct {
+type MyCustomStrategy[T any] struct {
     items []*heatwave.CacheItem[T]
 }
 
-func (f *MyFIFOStrategy[T]) Add(item *heatwave.CacheItem[T]) {
+func (f *MyCustomStrategy[T]) Add(item *heatwave.CacheItem[T]) {
     f.items = append(f.items, item)
 }
 
-func (f *MyFIFOStrategy[T]) Access(item *heatwave.CacheItem[T]) {
-    // FIFO doesn't reorder on access
+func (f *MyCustomStrategy[T]) Access(item *heatwave.CacheItem[T]) {
+    // Custom access logic
 }
 
-func (f *MyFIFOStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
+func (f *MyCustomStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
     for i, it := range f.items {
         if it == item {
             f.items = append(f.items[:i], f.items[i+1:]...)
@@ -215,28 +233,37 @@ func (f *MyFIFOStrategy[T]) Remove(item *heatwave.CacheItem[T]) {
     }
 }
 
-func (f *MyFIFOStrategy[T]) Evict() *heatwave.CacheItem[T] {
+func (f *MyCustomStrategy[T]) Evict() *heatwave.CacheItem[T] {
     if len(f.items) == 0 {
         return nil
     }
+    // Custom eviction logic
     item := f.items[0]
     f.items = f.items[1:]
     return item
 }
 
-func (f *MyFIFOStrategy[T]) Size() int {
+func (f *MyCustomStrategy[T]) Size() int {
     return len(f.items)
 }
 
-func (f *MyFIFOStrategy[T]) Clear() {
+func (f *MyCustomStrategy[T]) Clear() {
     f.items = f.items[:0]
 }
 
 // Usage
-fifoCache := heatwave.NewBucket[string](
-    heatwave.WithUpdater[string](&MyFIFOStrategy[string]{}),
+customCache := heatwave.NewBucket[string](
+    heatwave.WithUpdater[string](&MyCustomStrategy[string]{}),
 )
 ```
+
+### Strategy Comparison
+
+| Strategy | Eviction Rule | Use Cases | Time Complexity |
+|----------|---------------|-----------|----------------|
+| **LRU** | Least recently used | High locality access patterns | O(1) |
+| **FIFO** | First in, first out | Time-series data, fair eviction | O(1) |
+| **Custom** | User-defined logic | Special business requirements | Depends on implementation |
 
 ## 📖 Complete API Reference
 
@@ -259,6 +286,7 @@ fifoCache := heatwave.NewBucket[string](
 | `WithBucketOutdated[T]` | `time.Duration` | TTL for items |
 | `WithCleanupInterval[T]` | `time.Duration` | Cleanup frequency |
 | `WithUpdater[T]` | `Updater[T]` | Custom eviction strategy |
+| `WithFIFOUpdater[T]` | `none` | Use built-in FIFO strategy |
 
 ### Updater[T] Interface
 
