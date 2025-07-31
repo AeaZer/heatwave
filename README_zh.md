@@ -257,6 +257,77 @@ customCache := heatwave.NewBucket[string](
 )
 ```
 
+## 🔄 资源管理
+
+### 何时调用 Close()
+
+`Close()` 方法会停止后台清理协程并清空所有缓存数据。以下是何时需要调用它：
+
+#### ✅ **必须调用的场景**
+
+1. **短生命周期缓存**（请求级、函数级）：
+   ```go
+   func processRequest() {
+       cache := heatwave.NewBucket[User]()
+       defer cache.Close() // ✅ 必须调用 Close
+       
+       // 在请求处理中使用缓存...
+   }
+   ```
+
+2. **测试场景**：
+   ```go
+   func TestCache(t *testing.T) {
+       cache := heatwave.NewBucket[string]()
+       defer cache.Close() // ✅ 清理测试资源
+       
+       // 测试代码...
+   }
+   ```
+
+3. **应用程序优雅关闭**：
+   ```go
+   func main() {
+       cache := heatwave.NewBucket[User]()
+       defer cache.Close() // ✅ 推荐用于干净关闭
+       
+       // 应用程序逻辑...
+   }
+   ```
+
+#### ⭐ **可选调用的场景**
+
+**全局/长生命周期缓存**（Web 应用中常见）：
+```go
+// 全局缓存 - 整个应用程序生命周期内存在
+var userCache = heatwave.NewBucket[User](
+    heatwave.WithMaxSize[User](10000),
+    heatwave.WithBucketOutdated[User](time.Hour),
+)
+
+func main() {
+    http.HandleFunc("/users", handleUsers)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+    
+    // 💡 这里不需要调用 Close()
+    // 操作系统会在进程退出时回收所有内存
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+    user, found := userCache.Bring("user123")
+    if !found {
+        // 从数据库加载...
+        userCache.Nail("user123", user)
+    }
+    // 使用用户数据...
+}
+```
+
+**为什么全局缓存的 Close() 是可选的：**
+- 操作系统会在进程退出时自动回收所有内存
+- 后台协程会随主进程一起终止
+- 不会发生资源泄漏
+
 ### 策略比较
 
 | 策略 | 淘汰规则 | 适用场景 | 时间复杂度 |
@@ -275,7 +346,8 @@ customCache := heatwave.NewBucket[string](
 | `Bring` | `(id string) (T, bool)` | 通过键获取数据 |
 | `Size` | `() int` | 当前缓存大小 |
 | `Clear` | `()` | 移除所有项目 |
-| `Close` | `()` | 停止后台清理 |
+| `Close` | `() error` | 停止清理协程并清空所有数据 |
+| `IsClosed` | `() bool` | 检查 bucket 是否已关闭 |
 
 ### 配置选项
 

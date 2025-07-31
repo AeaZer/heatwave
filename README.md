@@ -257,6 +257,77 @@ customCache := heatwave.NewBucket[string](
 )
 ```
 
+## 🔄 Resource Management
+
+### When to Call Close()
+
+The `Close()` method stops the background cleanup goroutine and clears all cached data. Here's when you need to call it:
+
+#### ✅ **Required Scenarios**
+
+1. **Short-lived caches** (request-scoped, function-scoped):
+   ```go
+   func processRequest() {
+       cache := heatwave.NewBucket[User]()
+       defer cache.Close() // ✅ Always call Close
+       
+       // Use cache for request processing...
+   }
+   ```
+
+2. **Testing**:
+   ```go
+   func TestCache(t *testing.T) {
+       cache := heatwave.NewBucket[string]()
+       defer cache.Close() // ✅ Clean up test resources
+       
+       // Test code...
+   }
+   ```
+
+3. **Graceful application shutdown**:
+   ```go
+   func main() {
+       cache := heatwave.NewBucket[User]()
+       defer cache.Close() // ✅ Recommended for clean shutdown
+       
+       // Application logic...
+   }
+   ```
+
+#### ⭐ **Optional Scenarios**
+
+**Global/Long-lived caches** (common in web applications):
+```go
+// Global cache - lives for entire application lifetime
+var userCache = heatwave.NewBucket[User](
+    heatwave.WithMaxSize[User](10000),
+    heatwave.WithBucketOutdated[User](time.Hour),
+)
+
+func main() {
+    http.HandleFunc("/users", handleUsers)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+    
+    // 💡 Close() is NOT required here
+    // OS will reclaim all memory when process exits
+}
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+    user, found := userCache.Bring("user123")
+    if !found {
+        // Load from database...
+        userCache.Nail("user123", user)
+    }
+    // Use user...
+}
+```
+
+**Why Close() is optional for global caches:**
+- Operating system automatically reclaims all memory when process exits
+- Background goroutines terminate with the main process
+- No resource leaks occur
+
 ### Strategy Comparison
 
 | Strategy | Eviction Rule | Use Cases | Time Complexity |
@@ -275,7 +346,8 @@ customCache := heatwave.NewBucket[string](
 | `Bring` | `(id string) (T, bool)` | Retrieve data by key |
 | `Size` | `() int` | Current cache size |
 | `Clear` | `()` | Remove all items |
-| `Close` | `()` | Stop background cleanup |
+| `Close` | `() error` | Stop cleanup goroutine and clear all data |
+| `IsClosed` | `() bool` | Check if bucket is closed |
 
 ### Configuration Options
 

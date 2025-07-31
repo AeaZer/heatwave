@@ -1,6 +1,7 @@
 package heatwave
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -11,7 +12,9 @@ const (
 	defaultCleanupInterval = time.Minute
 )
 
-var defaultUpdater = newLRUUpdater[any]()
+var (
+	ErrBucketClosed = errors.New("bucket is closed")
+)
 
 // CacheItem represents an item in the cache with generic value type
 // This structure is now decoupled from any specific update strategy
@@ -32,18 +35,21 @@ type Bucket[T any] struct {
 	cache           map[string]*CacheItem[T] // Hash map for O(1) access
 	updater         Updater[T]               // Update strategy interface
 	mutex           sync.RWMutex             // Read-write mutex for thread safety
-	stopCleanup     chan bool                // Channel to stop cleanup goroutine
+	stopCleanup     chan struct{}            // Channel to stop cleanup goroutine
+	closed          bool                     // Flag to track if bucket is closed
+	closeMutex      sync.Mutex               // Mutex to protect close operation
 }
 
 func NewBucket[T any](opts ...NewBucketOption[T]) *Bucket[T] {
 	od := defaultOutdated
 	b := &Bucket[T]{
 		maxSize:         defaultMaxSize,
-		cache:           make(map[string]*CacheItem[T]),
 		outdated:        &od,
+		cache:           make(map[string]*CacheItem[T]),
 		updater:         newLRUUpdater[T](),
 		cleanupInterval: defaultCleanupInterval,
-		stopCleanup:     make(chan bool),
+		stopCleanup:     make(chan struct{}, 1), // Buffered channel to prevent blocking
+		closed:          false,
 	}
 
 	for _, opt := range opts {
@@ -60,6 +66,11 @@ func NewBucket[T any](opts ...NewBucketOption[T]) *Bucket[T] {
 func (b *Bucket[T]) Nail(id string, data T) error {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
+
+	// Check if bucket is closed
+	if b.isClosed() {
+		return ErrBucketClosed
+	}
 
 	expiredAt := time.Now().Add(*b.outdated)
 
@@ -98,6 +109,12 @@ func (b *Bucket[T]) Bring(id string) (T, bool) {
 	defer b.mutex.Unlock()
 
 	var zero T
+
+	// Check if bucket is closed
+	if b.isClosed() {
+		return zero, false
+	}
+
 	item, exists := b.cache[id]
 	if !exists {
 		return zero, false
@@ -124,6 +141,9 @@ func (b *Bucket[T]) startCleanup() {
 	for {
 		select {
 		case <-ticker.C:
+			if b.isClosed() {
+				return
+			}
 			b.cleanupExpired()
 		case <-b.stopCleanup:
 			return
@@ -135,6 +155,11 @@ func (b *Bucket[T]) startCleanup() {
 func (b *Bucket[T]) cleanupExpired() {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
+
+	// Double-check if closed after acquiring lock
+	if b.closed {
+		return
+	}
 
 	now := time.Now()
 	expiredKeys := make([]string, 0)
@@ -156,14 +181,60 @@ func (b *Bucket[T]) cleanupExpired() {
 }
 
 // Close closes the bucket and stops the cleanup goroutine
-func (b *Bucket[T]) Close() {
+// It's safe to call Close multiple times
+func (b *Bucket[T]) Close() error {
+	b.closeMutex.Lock()
+	defer b.closeMutex.Unlock()
+
+	// Check if already closed
+	if b.closed {
+		return nil // Already closed, no error
+	}
+
+	// Mark as closed
+	b.closed = true
+
+	// Stop the cleanup goroutine
+	select {
+	case b.stopCleanup <- struct{}{}:
+		// Signal sent successfully
+	default:
+		// Channel is full or closed, that's fine
+	}
+
+	// Close the channel
 	close(b.stopCleanup)
+
+	// Clear all data from the bucket
+	b.mutex.Lock()
+	b.cache = make(map[string]*CacheItem[T])
+	b.updater.Clear()
+	b.mutex.Unlock()
+
+	return nil
+}
+
+// isClosed checks if the bucket is closed (must be called with appropriate locking)
+func (b *Bucket[T]) isClosed() bool {
+	b.closeMutex.Lock()
+	defer b.closeMutex.Unlock()
+	return b.closed
+}
+
+// IsClosed returns whether the bucket is closed (public method)
+func (b *Bucket[T]) IsClosed() bool {
+	return b.isClosed()
 }
 
 // Size returns the current cache size
 func (b *Bucket[T]) Size() int {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
+
+	if b.isClosed() {
+		return 0
+	}
+
 	return b.updater.Size()
 }
 
@@ -171,6 +242,10 @@ func (b *Bucket[T]) Size() int {
 func (b *Bucket[T]) Clear() {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
+
+	if b.isClosed() {
+		return
+	}
 
 	b.cache = make(map[string]*CacheItem[T])
 	b.updater.Clear()
@@ -207,7 +282,7 @@ func WithUpdater[T any](updater Updater[T]) NewBucketOption[T] {
 	}
 }
 
-// WithFIFOUpdater sets a custom update strategy
+// WithFIFOUpdater sets FIFO update strategy
 func WithFIFOUpdater[T any]() NewBucketOption[T] {
 	return func(b *Bucket[T]) {
 		b.updater = newFIFO[T]()
