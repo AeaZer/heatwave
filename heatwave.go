@@ -21,7 +21,7 @@ var (
 type CacheItem[T any] struct {
 	key       string
 	value     T
-	expiredAt time.Time
+	expiredAt *time.Time // nil means never expire
 }
 
 type NewBucketOption[T any] func(b *Bucket[T])
@@ -72,7 +72,12 @@ func (b *Bucket[T]) Nail(id string, data T) error {
 		return ErrBucketClosed
 	}
 
-	expiredAt := time.Now().Add(*b.outdated)
+	var expiredAt *time.Time
+	if b.outdated != nil {
+		t := time.Now().Add(*b.outdated)
+		expiredAt = &t
+	}
+	// If b.outdated is nil, expiredAt remains nil (never expire)
 
 	// If key already exists, update it
 	if existingItem, exists := b.cache[id]; exists {
@@ -121,7 +126,7 @@ func (b *Bucket[T]) Bring(id string) (T, bool) {
 	}
 
 	// Check if expired
-	if time.Now().After(item.expiredAt) {
+	if item.expiredAt != nil && time.Now().After(*item.expiredAt) {
 		b.updater.Remove(item)
 		delete(b.cache, id)
 		return zero, false
@@ -166,7 +171,7 @@ func (b *Bucket[T]) cleanupExpired() {
 
 	// Collect expired keys
 	for key, item := range b.cache {
-		if now.After(item.expiredAt) {
+		if item.expiredAt != nil && now.After(*item.expiredAt) {
 			expiredKeys = append(expiredKeys, key)
 		}
 	}
@@ -257,9 +262,16 @@ func WithBucketName[T any](name string) NewBucketOption[T] {
 	}
 }
 
-func WithBucketOutdated[T any](outdated time.Duration) NewBucketOption[T] {
+func WithBucketExpire[T any](expire time.Duration) NewBucketOption[T] {
 	return func(b *Bucket[T]) {
-		b.outdated = &outdated
+		b.outdated = &expire
+	}
+}
+
+// WithBucketNeverExpire configures the bucket to never expire items by default
+func WithBucketNeverExpire[T any]() NewBucketOption[T] {
+	return func(b *Bucket[T]) {
+		b.outdated = nil // nil means never expire by default
 	}
 }
 

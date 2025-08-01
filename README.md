@@ -14,6 +14,7 @@ Heatwave is a blazing-fast, type-safe Go memory cache system with **full generic
 - 🚀 **High Performance** - O(1) operations with hash table + doubly linked list
 - 🔄 **Pluggable Eviction Strategies** - LRU (default), FIFO, Random, or custom
 - ⏰ **Auto Expiration** - TTL support with background cleanup
+- ♾️ **Never Expire Mode** - Option to disable expiration for permanent storage
 - 🔒 **Thread Safe** - Concurrent read/write with RWMutex
 - 🎛️ **Highly Configurable** - Size limits, cleanup intervals, custom strategies
 - 📦 **Zero Dependencies** - Pure Go implementation
@@ -158,9 +159,24 @@ if value, found := mixedCache.Bring("string"); found {
 cache := heatwave.NewBucket[string](
     heatwave.WithBucketName[string]("user-sessions"),
     heatwave.WithMaxSize[string](10000),                    // Max 10K items
-    heatwave.WithBucketOutdated[string](time.Hour),         // 1 hour TTL
+    heatwave.WithBucketExpire[string](time.Hour),           // 1 hour TTL
     heatwave.WithCleanupInterval[string](time.Minute * 5),  // Clean every 5min
 )
+```
+
+### Never Expire Configuration
+
+```go
+// Cache that never expires - only managed by eviction strategy
+neverExpireCache := heatwave.NewBucket[string](
+    heatwave.WithBucketName[string]("permanent-cache"),
+    heatwave.WithMaxSize[string](5000),                     // Only size limit
+    heatwave.WithBucketNeverExpire[string](),               // Never expire by time
+)
+
+// All items stored will never expire, only evicted when cache is full
+neverExpireCache.Nail("config", "important-setting")
+neverExpireCache.Nail("constants", "app-version-1.0")
 ```
 
 ### Advanced Configuration with Custom Strategy
@@ -173,7 +189,7 @@ cache := heatwave.NewBucket[string](
     heatwave.WithBucketName[string]("high-priority-cache"),
     heatwave.WithMaxSize[string](5000),
     heatwave.WithUpdater[string](customUpdater),
-    heatwave.WithBucketOutdated[string](time.Minute * 30),
+    heatwave.WithBucketExpire[string](time.Minute * 30),
 )
 ```
 
@@ -302,7 +318,7 @@ The `Close()` method stops the background cleanup goroutine and clears all cache
 // Global cache - lives for entire application lifetime
 var userCache = heatwave.NewBucket[User](
     heatwave.WithMaxSize[User](10000),
-    heatwave.WithBucketOutdated[User](time.Hour),
+    heatwave.WithBucketExpire[User](time.Hour),
 )
 
 func main() {
@@ -323,6 +339,35 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+**Never expire example** (for permanent data):
+```go
+// Application configuration cache that never expires
+var configCache = heatwave.NewBucket[string](
+    heatwave.WithBucketName[string]("app-config"),
+    heatwave.WithMaxSize[string](1000),
+    heatwave.WithBucketNeverExpire[string](), // Never expire by time
+)
+
+func main() {
+    // Load permanent configuration
+    configCache.Nail("app.version", "1.0.0")
+    configCache.Nail("app.name", "MyApp")
+    configCache.Nail("api.endpoint", "https://api.example.com")
+    
+    // These values will never expire and persist until:
+    // 1. Manually removed, or 
+    // 2. Evicted when cache reaches max size
+    
+    http.HandleFunc("/config", handleConfig)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func handleConfig(w http.ResponseWriter, r *http.Request) {
+    version, _ := configCache.Bring("app.version") // Always available
+    fmt.Fprintf(w, "Version: %s", version)
+}
+```
+
 **Why Close() is optional for global caches:**
 - Operating system automatically reclaims all memory when process exits
 - Background goroutines terminate with the main process
@@ -335,6 +380,13 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 | **LRU** | Least recently used | High locality access patterns | O(1) |
 | **FIFO** | First in, first out | Time-series data, fair eviction | O(1) |
 | **Custom** | User-defined logic | Special business requirements | Depends on implementation |
+
+### Expiration Modes
+
+| Mode | Behavior | Use Cases |
+|------|----------|-----------|
+| **TTL Expiration** | Items expire after specified duration | Temporary data, session storage |
+| **Never Expire** | Items only removed by eviction strategy | Configuration data, permanent cache |
 
 ## 📖 Complete API Reference
 
@@ -355,7 +407,8 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 |--------|------|-------------|
 | `WithBucketName[T]` | `string` | Set cache name |
 | `WithMaxSize[T]` | `int` | Maximum cache size |
-| `WithBucketOutdated[T]` | `time.Duration` | TTL for items |
+| `WithBucketExpire[T]` | `time.Duration` | TTL for items |
+| `WithBucketNeverExpire[T]` | `none` | Disable expiration (items never expire by time) |
 | `WithCleanupInterval[T]` | `time.Duration` | Cleanup frequency |
 | `WithUpdater[T]` | `Updater[T]` | Custom eviction strategy |
 | `WithFIFOUpdater[T]` | `none` | Use built-in FIFO strategy |

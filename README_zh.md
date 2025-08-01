@@ -14,6 +14,7 @@ Heatwave 是一个高性能、类型安全的 Go 内存缓存系统，**完全�
 - 🚀 **高性能** - 基于哈希表 + 双向链表的 O(1) 操作
 - 🔄 **可插拔淘汰策略** - LRU（默认）、FIFO、随机或自定义策略
 - ⏰ **自动过期** - TTL 支持和后台清理
+- ♾️ **永不过期模式** - 可选禁用过期机制，实现永久存储
 - 🔒 **线程安全** - 使用 RWMutex 支持并发读写
 - 🎛️ **高度可配置** - 大小限制、清理间隔、自定义策略
 - 📦 **零依赖** - 纯 Go 实现
@@ -90,7 +91,7 @@ if value, found := cache.Bring("key"); found {
 |------|------|
 | **Nail** | 将数据"钉"在内存中（存储操作） |
 | **Bring** | 从缓存中"取出"数据（获取操作） |
-| **Bucket** | 管理类型化项目的泛型缓存容器 |
+| **Bucket** | 管理类型化对象的泛型缓存容器 |
 | **Updater** | 可插拔的淘汰策略接口 |
 
 ## 📊 支持的类型
@@ -157,10 +158,25 @@ if value, found := mixedCache.Bring("string"); found {
 ```go
 cache := heatwave.NewBucket[string](
     heatwave.WithBucketName[string]("user-sessions"),
-    heatwave.WithMaxSize[string](10000),                    // 最大 1万 项目
-    heatwave.WithBucketOutdated[string](time.Hour),         // 1小时 TTL
+    heatwave.WithMaxSize[string](10000),                    // 最大 1万 对象
+    heatwave.WithBucketExpire[string](time.Hour),           // 1小时 TTL
     heatwave.WithCleanupInterval[string](time.Minute * 5),  // 每5分钟清理
 )
+```
+
+### 永不过期配置
+
+```go
+// 永不过期的缓存 - 只通过淘汰策略管理
+neverExpireCache := heatwave.NewBucket[string](
+    heatwave.WithBucketName[string]("permanent-cache"),
+    heatwave.WithMaxSize[string](5000),                     // 只有大小限制
+    heatwave.WithBucketNeverExpire[string](),               // 时间上永不过期
+)
+
+// 所有存储的数据永不过期，只有在缓存满时才根据策略淘汰
+neverExpireCache.Nail("config", "重要设置")
+neverExpireCache.Nail("constants", "应用版本-1.0")
 ```
 
 ### 使用自定义策略的高级配置
@@ -173,7 +189,7 @@ cache := heatwave.NewBucket[string](
     heatwave.WithBucketName[string]("high-priority-cache"),
     heatwave.WithMaxSize[string](5000),
     heatwave.WithUpdater[string](customUpdater),
-    heatwave.WithBucketOutdated[string](time.Minute * 30),
+    heatwave.WithBucketExpire[string](time.Minute * 30),
 )
 ```
 
@@ -302,7 +318,7 @@ customCache := heatwave.NewBucket[string](
 // 全局缓存 - 整个应用程序生命周期内存在
 var userCache = heatwave.NewBucket[User](
     heatwave.WithMaxSize[User](10000),
-    heatwave.WithBucketOutdated[User](time.Hour),
+    heatwave.WithBucketExpire[User](time.Hour),
 )
 
 func main() {
@@ -323,6 +339,35 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+**永不过期示例**（用于永久数据）：
+```go
+// 永不过期的应用配置缓存
+var configCache = heatwave.NewBucket[string](
+    heatwave.WithBucketName[string]("app-config"),
+    heatwave.WithMaxSize[string](1000),
+    heatwave.WithBucketNeverExpire[string](), // 时间上永不过期
+)
+
+func main() {
+    // 加载永久配置
+    configCache.Nail("app.version", "1.0.0")
+    configCache.Nail("app.name", "我的应用")
+    configCache.Nail("api.endpoint", "https://api.example.com")
+    
+    // 这些值永不过期，只有在以下情况下才会被移除：
+    // 1. 手动删除，或
+    // 2. 当缓存达到最大大小时被淘汰
+    
+    http.HandleFunc("/config", handleConfig)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func handleConfig(w http.ResponseWriter, r *http.Request) {
+    version, _ := configCache.Bring("app.version") // 始终可用
+    fmt.Fprintf(w, "版本: %s", version)
+}
+```
+
 **为什么全局缓存的 Close() 是可选的：**
 - 操作系统会在进程退出时自动回收所有内存
 - 后台协程会随主进程一起终止
@@ -336,6 +381,13 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 | **FIFO** | 先进先出 | 时间序列数据，公平淘汰 | O(1) |
 | **自定义** | 自定义逻辑 | 特殊业务需求 | 取决于实现 |
 
+### 过期模式
+
+| 模式 | 行为 | 适用场景 |
+|------|------|----------|
+| **TTL 过期** | 对象在指定时间后过期 | 临时数据、会话存储 |
+| **永不过期** | 对象只通过淘汰策略移除 | 配置数据、永久缓存 |
+
 ## 📖 完整 API 参考
 
 ### Bucket[T] 方法
@@ -345,7 +397,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 | `Nail` | `(id string, data T) error` | 使用键存储数据 |
 | `Bring` | `(id string) (T, bool)` | 通过键获取数据 |
 | `Size` | `() int` | 当前缓存大小 |
-| `Clear` | `()` | 移除所有项目 |
+| `Clear` | `()` | 移除所有对象 |
 | `Close` | `() error` | 停止清理协程并清空所有数据 |
 | `IsClosed` | `() bool` | 检查 bucket 是否已关闭 |
 
@@ -355,7 +407,8 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 |------|------|------|
 | `WithBucketName[T]` | `string` | 设置缓存名称 |
 | `WithMaxSize[T]` | `int` | 最大缓存大小 |
-| `WithBucketOutdated[T]` | `time.Duration` | 项目 TTL |
+| `WithBucketExpire[T]` | `time.Duration` | 对象 TTL |
+| `WithBucketNeverExpire[T]` | `无参数` | 禁用过期（对象永不因时间过期） |
 | `WithCleanupInterval[T]` | `time.Duration` | 清理频率 |
 | `WithUpdater[T]` | `Updater[T]` | 自定义淘汰策略 |
 | `WithFIFOUpdater[T]` | `无参数` | 使用内置 FIFO 策略 |
@@ -364,12 +417,12 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 
 ```go
 type Updater[T any] interface {
-    Add(item *CacheItem[T])     // 添加新项目
-    Access(item *CacheItem[T])  // 标记项目被访问
-    Remove(item *CacheItem[T])  // 移除特定项目
-    Evict() *CacheItem[T]       // 淘汰项目（策略相关）
+    Add(item *CacheItem[T])     // 添加新对象
+    Access(item *CacheItem[T])  // 标记对象被访问
+    Remove(item *CacheItem[T])  // 移除特定对象
+    Evict() *CacheItem[T]       // 淘汰对象（策略相关）
     Size() int                  // 当前大小
-    Clear()                     // 清除所有项目
+    Clear()                     // 清除所有对象
 }
 ```
 
@@ -399,7 +452,7 @@ if data, found := stringCache.Bring("key"); found {
 - **存储 (Nail)**: O(1)
 - **获取 (Bring)**: O(1)  
 - **淘汰**: LRU/FIFO 为 O(1)
-- **空间**: O(n)，其中 n = 缓存大小
+- **空间**: O(n)，其中 n = 缓存对象数量
 
 ### 并发性
 - **线程安全**: 使用 `sync.RWMutex`
@@ -435,8 +488,8 @@ go func() {
 
 | 设置 | 默认值 | 描述 |
 |------|--------|------|
-| **最大大小** | 1,000 项目 | 最大缓存容量 |
-| **TTL** | 5 分钟 | 项目过期时间 |
+| **最大大小** | 1,000 对象 | 最大缓存容量 |
+| **TTL** | 5 分钟 | 对象过期时间 |
 | **清理间隔** | 1 分钟 | 后台清理频率 |
 | **策略** | LRU | 默认淘汰策略 |
 

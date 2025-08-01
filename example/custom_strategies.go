@@ -135,7 +135,7 @@ func demonstrateCustomStrategies() {
 		heatwave.WithBucketName[string]("custom-fifo"),
 		heatwave.WithMaxSize[string](3),
 		heatwave.WithFIFOUpdater[string](),
-		heatwave.WithBucketOutdated[string](time.Second*10),
+		heatwave.WithBucketExpire[string](time.Second*10),
 	)
 	defer fifoCache.Close()
 
@@ -164,7 +164,7 @@ func demonstrateCustomStrategies() {
 		heatwave.WithBucketName[int]("frequency-cache"),
 		heatwave.WithMaxSize[int](3),
 		heatwave.WithUpdater[int](newFrequencyStrategy[int]()),
-		heatwave.WithBucketOutdated[int](time.Second*10),
+		heatwave.WithBucketExpire[int](time.Second*10),
 	)
 	defer freqCache.Close()
 

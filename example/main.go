@@ -15,7 +15,7 @@ func main() {
 	lruCache := heatwave.NewBucket[string](
 		heatwave.WithBucketName[string]("lru-cache"),
 		heatwave.WithMaxSize[string](3),
-		heatwave.WithBucketOutdated[string](time.Second*10),
+		heatwave.WithBucketExpire[string](time.Second*10),
 	)
 	defer lruCache.Close()
 
@@ -47,7 +47,7 @@ func main() {
 	intCache := heatwave.NewBucket[int](
 		heatwave.WithBucketName[int]("int-cache"),
 		heatwave.WithMaxSize[int](3),
-		heatwave.WithBucketOutdated[int](time.Second*10),
+		heatwave.WithBucketExpire[int](time.Second*10),
 	)
 	defer intCache.Close()
 
@@ -72,7 +72,7 @@ func main() {
 	userCache := heatwave.NewBucket[User](
 		heatwave.WithBucketName[User]("user-cache"),
 		heatwave.WithMaxSize[User](2),
-		heatwave.WithBucketOutdated[User](time.Second*10),
+		heatwave.WithBucketExpire[User](time.Second*10),
 	)
 	defer userCache.Close()
 
@@ -89,7 +89,7 @@ func main() {
 	byteCache := heatwave.NewBucket[[]byte](
 		heatwave.WithBucketName[[]byte]("byte-cache"),
 		heatwave.WithMaxSize[[]byte](2),
-		heatwave.WithBucketOutdated[[]byte](time.Second*10),
+		heatwave.WithBucketExpire[[]byte](time.Second*10),
 	)
 	defer byteCache.Close()
 
@@ -104,7 +104,7 @@ func main() {
 	fmt.Println("\n5. Expiration Demo:")
 	expCache := heatwave.NewBucket[string](
 		heatwave.WithBucketName[string]("exp-cache"),
-		heatwave.WithBucketOutdated[string](time.Second*2), // 2 seconds TTL
+		heatwave.WithBucketExpire[string](time.Second*2), // 2 seconds TTL
 	)
 	defer expCache.Close()
 
