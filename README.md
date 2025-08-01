@@ -14,7 +14,7 @@ Heatwave is a blazing-fast, type-safe Go memory cache system with **full generic
 - 🚀 **High Performance** - O(1) operations with hash table + doubly linked list
 - 🔄 **Pluggable Eviction Strategies** - LRU (default), FIFO, Random, or custom
 - ⏰ **Auto Expiration** - TTL support with background cleanup
-- ♾️ **Never Expire Mode** - Option to disable expiration for permanent storage
+- ♾️ **Never Expire Mode** - Option to disable expiration, managed only by eviction strategy
 - 🔒 **Thread Safe** - Concurrent read/write with RWMutex
 - 🎛️ **Highly Configurable** - Size limits, cleanup intervals, custom strategies
 - 📦 **Zero Dependencies** - Pure Go implementation
@@ -169,7 +169,7 @@ cache := heatwave.NewBucket[string](
 ```go
 // Cache that never expires - only managed by eviction strategy
 neverExpireCache := heatwave.NewBucket[string](
-    heatwave.WithBucketName[string]("permanent-cache"),
+    heatwave.WithBucketName[string]("long-term-cache"),
     heatwave.WithMaxSize[string](5000),                     // Only size limit
     heatwave.WithBucketNeverExpire[string](),               // Never expire by time
 )
@@ -339,7 +339,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-**Never expire example** (for permanent data):
+**Never expire example** (for long-term data):
 ```go
 // Application configuration cache that never expires
 var configCache = heatwave.NewBucket[string](
@@ -349,7 +349,7 @@ var configCache = heatwave.NewBucket[string](
 )
 
 func main() {
-    // Load permanent configuration
+    // Load long-term configuration
     configCache.Nail("app.version", "1.0.0")
     configCache.Nail("app.name", "MyApp")
     configCache.Nail("api.endpoint", "https://api.example.com")
@@ -386,7 +386,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 | Mode | Behavior | Use Cases |
 |------|----------|-----------|
 | **TTL Expiration** | Items expire after specified duration | Temporary data, session storage |
-| **Never Expire** | Items only removed by eviction strategy | Configuration data, permanent cache |
+| **Never Expire** | Items only removed by eviction strategy | Configuration data, long-term cache |
 
 ## 📖 Complete API Reference
 
